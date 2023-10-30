@@ -38,8 +38,11 @@ NUMBER_OF_PREDEFINED_CONTEXT_MESSAGES = 1  # TODO: Will be dynamic
 PERMISSION_ERROR_TEXT = "You don't have permissions to use that bot!"
 
 CALLBACK_CORRECT_TRANSCRIPT = "correct_transcript"
+CALLBACK_CORRECT_VIDEO_TRANSCRIPT = "correct_video_transcript"
 CALLBACK_WRONG_TRANSCRIPT = "wrong_transcript"
 VOICE_PROCESSING_KEYBOARD = [[InlineKeyboardButton(text="Correct! Send it to GPT!", callback_data=CALLBACK_CORRECT_TRANSCRIPT)],
+                             [InlineKeyboardButton(text="No, I'll copy and edit myself", callback_data=CALLBACK_WRONG_TRANSCRIPT)]]
+VIDEO_PROCESSING_KEYBOARD = [[InlineKeyboardButton(text="Correct! Send it to GPT!", callback_data=CALLBACK_CORRECT_VIDEO_TRANSCRIPT)],
                              [InlineKeyboardButton(text="No, I'll copy and edit myself", callback_data=CALLBACK_WRONG_TRANSCRIPT)]]
 
 MODELS = {"gpt3": {"model": "gpt-3.5-turbo", "request_price": 2, "response_price": 2},
@@ -322,10 +325,11 @@ def get_generated_image(prompt, number_of_pictures=1, size="1024x1024"):
 
 
 # Voice processing
-def transcribe(ogg_audio_bytes):
-    mp3_bytes = convert_ogg_to_mp3(ogg_audio_bytes)
-    mp3_bytes.name = "filename.mp3"  # required by transcribe method
-    return openai.Audio.transcribe(model=VOICE_MODELS["whisper"]["model"], file=mp3_bytes)["text"]
+def transcribe(audio_bytes, is_ogg=True):
+    if is_ogg:
+        audio_bytes = convert_ogg_to_mp3(audio_bytes)
+    audio_bytes.name = "filename.mp3"  # required by transcribe method
+    return openai.Audio.transcribe(model=VOICE_MODELS["whisper"]["model"], file=audio_bytes)["text"]
 
 
 def convert_ogg_to_mp3(ogg_bytes):
@@ -336,6 +340,13 @@ def convert_ogg_to_mp3(ogg_bytes):
     mp3_data = io.BytesIO(audio_data.export(format="mp3").read())
     return mp3_data
 
+# Video processing
+def get_audio_from_video(video_bytes):
+    video_file = io.BytesIO(video_bytes)
+    audio_data = AudioSegment.from_file(video_file)
+    # Convert the audio to MP3 format
+    mp3_data = io.BytesIO(audio_data.export(format="mp3").read())
+    return mp3_data
 
 ################# USERS ACTIONS ##############################
 # /start handler
@@ -418,6 +429,27 @@ async def voice_to_text(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text(PERMISSION_ERROR_TEXT)
 
+# Video message handler
+async def video_to_text(update: Update, context: CallbackContext):
+    user_id = str(update.message.from_user.id)
+    if allowed_user(user_id):
+        video = update.message.video
+        duration = video.duration
+        # Assuming `voice_message` is a Telegram `Voice` message object
+        video_file = video.file_id
+        # Download the video file from Telegram servers
+        file = await context.bot.get_file(video_file)
+        video_data = await file.download_as_bytearray()
+        audio_data = get_audio_from_video(video_data)
+        text = transcribe(audio_data, False)
+        processing_cost = math.ceil(duration * VOICE_MODELS["whisper"]["price_per_minute"] / 60)
+        add_image_voice_spending(
+            user_id, processing_cost, VOICE_MODELS["whisper"]["model"])
+        reply_markup = InlineKeyboardMarkup(VIDEO_PROCESSING_KEYBOARD)
+        await update.message.reply_text(text + "\n" + "Do you want to translate it? \n Processing costed: " + str(processing_cost / 1000 / 60) + " USD", reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(PERMISSION_ERROR_TEXT)
+
 
 # /clear handler
 async def clear(update: Update, context: CallbackContext):
@@ -485,6 +517,7 @@ async def get_all_users_spending(update: Update, context: CallbackContext):
 
 # Callback handler
 async def process_callback(update: Update, context: CallbackContext):
+    translation_prompt = "Translate into english or just correct the possible typos and mistakes: "
     query = update.callback_query
     user_id = query.from_user.id
     chat_id = query.message.chat_id
@@ -493,13 +526,14 @@ async def process_callback(update: Update, context: CallbackContext):
     message = query.message.text.splitlines()[0]
     await query.answer()
     await query.edit_message_text(message)
-
+    if query.data == CALLBACK_WRONG_TRANSCRIPT:
+        return None
     if query.data == CALLBACK_CORRECT_TRANSCRIPT:
         response, tokens_used = process_text(message, user_id, message_id)
-        await context.bot.send_message(chat_id=chat_id, text=response)
-        await context.bot.send_message(chat_id=chat_id, text="Last request used " + str(tokens_used["total_tokens"]) + " tokens. It costed " + str(get_price(tokens_used, user_id)) + " USD")
-    elif query.data == CALLBACK_WRONG_TRANSCRIPT:
-        pass
+    elif query.data == CALLBACK_CORRECT_VIDEO_TRANSCRIPT:
+        response, tokens_used = process_text(translation_prompt + message, user_id, message_id)
+    await context.bot.send_message(chat_id=chat_id, text=response)
+    await context.bot.send_message(chat_id=chat_id, text="Last request used " + str(tokens_used["total_tokens"]) + " tokens. It costed " + str(get_price(tokens_used, user_id)) + " USD")
 
 
 ###################### MAIN ##########################################
@@ -524,6 +558,7 @@ async def run_bot_application(event):
     application.add_handler(CommandHandler("spendings", get_total_spending))
     application.add_handler(CommandHandler("spendings_all", get_all_users_spending))
     application.add_handler(MessageHandler(filters.VOICE, voice_to_text))
+    application.add_handler(MessageHandler(filters.VIDEO, video_to_text))
     application.add_handler(CallbackQueryHandler(process_callback))
     application.add_handler(MessageHandler(
         filters.TEXT & ~filters.COMMAND, handle_text))

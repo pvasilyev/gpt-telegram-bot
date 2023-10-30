@@ -1,5 +1,14 @@
 #!/bin/bash
 set -e
+shopt -s expand_aliases
+
+if [ -f ~/.config/op/plugins.sh ]; then
+    echo "Sourcing ~/.config/op/plugins.sh"
+    source ~/.config/op/plugins.sh
+else
+    echo "One Password aliases are not found in ~/.op/plugins.sh"
+fi
+
 
 check_requirements() {
   command -v aws >/dev/null 2>&1 || { echo >&2 "AWS CLI required. Install with 'pip install awscli'. Aborting."; exit 1; }
@@ -12,7 +21,7 @@ check_requirements
 # Check if AWS CLI has valid credentials
 if ! aws sts get-caller-identity &> /dev/null; then
     echo "Error: AWS CLI has no valid credentials. Please configure it and try again."
-    exit 1
+    exit $?
 fi
 
 # Check if the script received a config name argument
