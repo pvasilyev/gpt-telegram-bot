@@ -9,8 +9,8 @@
 
 GPT/Whisper/DALL-E Telegram Bot using AWS features
 
-- Lambda, DynamoDB (full auto deployment)
-- ~~Fargate, ECS (manual Docker container deployment)~~ Depricated
+- Lambda, DynamoDB (full auto-deployment)
+- ~~Fargate, ECS (manual Docker container deployment)~~ Deprecated
 
 ## Requirements
 
@@ -25,11 +25,11 @@ GPT/Whisper/DALL-E Telegram Bot using AWS features
 
 2. Install and setup AWS CLI (region must be specified in ~/.aws/credentials. Ex.: region=eu-west-1)
 
-3. Update the \`.chalice/config.json\` file with your Telegram Bot API, openAI API Token, your telegram userID (get it from @userinfobot).
+3. Update the \`.chalice/config.json\` file with your Telegram Bot API, OpenAI API Token, and your telegram userID (get it from @userinfobot).
 
 4. Run the `deploy.sh` script to deploy the Telegram Bot to AWS Lambda (or `deploy.sh name` for a custom config)
 
-For voice processing you will need manually (will be automated in the next release):
+For voice processing you will need to do the next manually (it will be automated in the next releases):
 
 1. Upload ffmpeg.zip to your S3 bucket
 2. Create Lambda Layer using S3 URI
@@ -37,9 +37,10 @@ For voice processing you will need manually (will be automated in the next relea
 
 ## Features
 
-- Currently used openAI model: gpt-3.5-turbo-0301 (Just type any message)
+- Currently used openAI model: gpt-3.5, gpt-4 (Choose in config or by the bot's command)
 - Image generation `/image prompt` or just ask without the command!
 - Voice message transcript (Just send any voice message)
-- Context of your chat is saved until you use command `/clear`
-- Price in USD of the response is shown
+- Video transcript and translation! (Send any video to the bot, and it will transcribe and translate it to English)
+- The context of your chat is saved until you use the command `/clear`
+- The price in USD of the response is shown
 - Multi-config support: keep multiple chalice configs to deploy multiple bots `.chalice/name.config.json`
