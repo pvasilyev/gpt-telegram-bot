@@ -4,7 +4,8 @@ import io
 import time
 import datetime
 import json
-import openai
+from functools import wraps
+from openai import OpenAI
 import logging
 import asyncio
 import boto3
@@ -12,6 +13,7 @@ from pydub import AudioSegment
 from chalice import Chalice
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ParseMode
+from telegram.constants import ChatAction
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext, CallbackQueryHandler
 
 # Enable logging
@@ -45,8 +47,20 @@ VOICE_PROCESSING_KEYBOARD = [[InlineKeyboardButton(text="Correct! Send it to GPT
 VIDEO_PROCESSING_KEYBOARD = [[InlineKeyboardButton(text="Correct! Send it to GPT!", callback_data=CALLBACK_CORRECT_VIDEO_TRANSCRIPT)],
                              [InlineKeyboardButton(text="No, I'll copy and edit myself", callback_data=CALLBACK_WRONG_TRANSCRIPT)]]
 
-MODELS = {"gpt3": {"model": "gpt-3.5-turbo", "request_price": 2, "response_price": 2},
-          "gpt4": {"model": "gpt-4", "response_price": 60, "request_price": 20}}
+# https://openai.com/api/pricing/
+MODELS = {
+    # gpt-3.5-turbo request: $3.000 / 1M input tokens; response: $1.500 / 1M input tokens
+    "gpt3": {"model": "gpt-3.5-turbo", "request_price": 3, "response_price": 1.5},
+
+    # gpt4 request: $30.00 / 1M tokens; response: $60.00 / 1M tokens
+    "gpt4": {"model": "gpt-4", "response_price": 30, "request_price": 60},
+
+    # gpt-4o request: $5.00 / 1M input tokens; response: $15.00 / 1M output tokens
+    "gpt-4o": {"model": "gpt-4o", "response_price": 5, "request_price": 15},
+
+    # gpt-4o-mini request: $0.150 / 1M input tokens; response: $0.600 / 1M output tokens
+    "gpt-4o-mini": {"model": "gpt-4o-mini", "response_price": 0.15, "request_price": 0.6},
+}
 IMAGE_MODELS = {"dall-e": {"model": "dall-e", "response_price": 20}}
 VOICE_MODELS = {"whisper": {"model": "whisper-1", "price_per_minute": 6}}
 DEFAULT_WHISPER_MODEL = "whisper-1"
