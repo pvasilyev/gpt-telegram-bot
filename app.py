@@ -67,7 +67,7 @@ DEFAULT_WHISPER_MODEL = "whisper-1"
 
 
 # Initialize the OpenAI library
-openai.api_key = OPENAI_API_KEY
+client = OpenAI(api_key=OPENAI_API_KEY)
 # Initialize the Chalice app
 app = Chalice(app_name=APP_NAME)
 # Connect to DynamoDB
@@ -290,16 +290,26 @@ def get_all_spendings():
     return spendings_by_user
 
 
+def send_action(action):
+    """Sends `action` while processing func command."""
+
+    def decorator(func):
+        @wraps(func)
+        async def command_func(update, context, *args, **kwargs):
+            await context.bot.send_chat_action(chat_id=update.effective_message.chat_id, action=action)
+            return await func(update, context,  *args, **kwargs)
+        return command_func
+
+    return decorator
+
+
 ######################## CHAT GPT MESSAGES PROCESSING ################################
 # Function to get a response from ChatGPT
 def get_chatgpt_response(prompt, chat_context, model_name="gpt-3.5-turbo"):
     print("User asked: " + prompt)
     print("Actual model used: " + model_name)
     chat_context.append({"role": "user", "content": prompt})
-    response = openai.ChatCompletion.create(
-        model=model_name,
-        messages=chat_context
-    )
+    response = client.chat.completions.create(model=model_name, messages=chat_context)
     print("Model from OpenAI response: " + response.model)
     response_text = response.choices[0].message.content.strip()
     prompt_tokens = response.usage.prompt_tokens
@@ -330,12 +340,13 @@ def get_formatted_messages_for_gpt(user_id):
 
 # Image processing
 def get_generated_image(prompt, number_of_pictures=1, size="1024x1024"):
-    response = openai.Image.create(
+    response = client.images.generate(
+        model="dall-e-3",
         prompt=prompt,
         n=number_of_pictures,
         size=size
     )
-    return response["data"][0]["url"]
+    return response.data[0].url
 
 
 # Voice processing
@@ -343,7 +354,11 @@ def transcribe(audio_bytes, is_ogg=True):
     if is_ogg:
         audio_bytes = convert_ogg_to_mp3(audio_bytes)
     audio_bytes.name = "filename.mp3"  # required by transcribe method
-    return openai.Audio.transcribe(model=VOICE_MODELS["whisper"]["model"], file=audio_bytes)["text"]
+    transcriptions = client.audio.transcriptions.create(
+        model=VOICE_MODELS["whisper"]["model"],
+        file=audio_bytes
+    )
+    return transcriptions.text
 
 
 def convert_ogg_to_mp3(ogg_bytes):
@@ -354,6 +369,7 @@ def convert_ogg_to_mp3(ogg_bytes):
     mp3_data = io.BytesIO(audio_data.export(format="mp3").read())
     return mp3_data
 
+
 # Video processing
 def get_audio_from_video(video_bytes):
     video_file = io.BytesIO(video_bytes)
@@ -361,6 +377,7 @@ def get_audio_from_video(video_bytes):
     # Convert the audio to MP3 format
     mp3_data = io.BytesIO(audio_data.export(format="mp3").read())
     return mp3_data
+
 
 ################# USERS ACTIONS ##############################
 # /start handler
@@ -409,6 +426,7 @@ async def users(update: Update, context: CallbackContext):
 
 #################### MESSAGE PROCESSING ###########################
 # Text message handler
+@send_action(ChatAction.TYPING)
 async def handle_text(update: Update, context: CallbackContext):
     user_text = update.message.text
     user_id = str(update.message.from_user.id)
@@ -424,6 +442,7 @@ async def handle_text(update: Update, context: CallbackContext):
 
 
 # Voice message handler
+@send_action(ChatAction.TYPING)
 async def voice_to_text(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     if allowed_user(user_id):
@@ -443,7 +462,9 @@ async def voice_to_text(update: Update, context: CallbackContext):
     else:
         await update.message.reply_text(PERMISSION_ERROR_TEXT)
 
+
 # Video message handler
+@send_action(ChatAction.TYPING)
 async def video_to_text(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     if allowed_user(user_id):
@@ -477,6 +498,7 @@ async def clear(update: Update, context: CallbackContext):
 
 
 # /image handler
+@send_action(ChatAction.UPLOAD_PHOTO)
 async def generate_image(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     if allowed_user(user_id):
@@ -512,6 +534,7 @@ async def choose_model(update: Update, context: CallbackContext):
 
 
 # spendings handler
+@send_action(ChatAction.TYPING)
 async def get_total_spending(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     spending = get_spendings_for_user(user_id)
@@ -519,6 +542,7 @@ async def get_total_spending(update: Update, context: CallbackContext):
 
 
 # all spendings handler
+@send_action(ChatAction.TYPING)
 async def get_all_users_spending(update: Update, context: CallbackContext):
     user_id = str(update.message.from_user.id)
     if user_id == ADMIN_ID:

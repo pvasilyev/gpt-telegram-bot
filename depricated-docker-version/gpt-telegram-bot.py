@@ -1,6 +1,8 @@
 import os
 import json
-import openai
+from openai import OpenAI
+
+client = OpenAI(api_key=OPENAI_API_KEY)
 import logging
 from dotenv import load_dotenv
 from telegram import Update
@@ -23,7 +25,6 @@ APP_NAME = "gpt-telegram-bot"
 LAMBDA_MESSAGE_HANDLER = "lambda-message-handler"
 
 # Initialize the OpenAI library
-openai.api_key = OPENAI_API_KEY
 
 async def allowed_only(update, allowed_list):
     user_id = update.message.from_user.id
@@ -47,7 +48,7 @@ async def clear(update: Update, context: CallbackContext):
     context.user_data["chat context"] = []
     logger.info("Context should be cleared by now: " + str(context.user_data["chat context"]))
     await update.message.reply_text('Context cleared')
-  
+
 async def add_user(update: Update, context: CallbackContext):
     if await admin_only(update):
         ALLOWED_USER_IDS.append(context.args[0])
@@ -70,7 +71,7 @@ async def users(update: Update, context: CallbackContext):
         for i, user in enumerate(ALLOWED_USER_IDS):
             response_strings += str(i+1) + " " + str(user) + "\n"
         await update.message.reply_text(response_strings)
-    
+
 # Function to handle text messages
 async def handle_text(update: Update, context: CallbackContext):
     user_text = update.message.text
@@ -82,10 +83,8 @@ async def handle_text(update: Update, context: CallbackContext):
 # Function to get a response from ChatGPT-3.5
 def get_chatgpt_response(prompt, chat_context):
     chat_context.append({"role": "user", "content": prompt})
-    response = openai.ChatCompletion.create(
-        model="gpt-3.5-turbo-0301",
-        messages=chat_context
-    )
+    response = client.chat.completions.create(model="gpt-3.5-turbo-0301",
+    messages=chat_context)
     response_text = response.choices[0].message.content.strip()
     chat_context.append({"role": "assistant", "content": response_text})
     return response_text
